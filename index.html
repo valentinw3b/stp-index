@@ -6,17 +6,8 @@
     <title>Visor STP 3D - Telmedia</title>
     <style>
         * { box-sizing:border-box; margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-        body { background:#f0f4f9; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:24px 20px; }
-        .header { width:100%; max-width:1000px; display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; gap:12px; flex-wrap:wrap; }
-        .title { font-size:22px; font-weight:700; color:#1e3a5f; white-space:nowrap; }
-        .search-bar { display:flex; align-items:center; flex:1; min-width:260px; max-width:560px; background:#fff; border-radius:12px; box-shadow:0 2px 10px rgba(0,30,60,.07); overflow:hidden; border:1.5px solid #d0e3f5; transition:border-color .2s; }
-        .search-bar:focus-within { border-color:#1a73e8; }
-        .search-icon { padding:0 12px; color:#7a9abf; flex-shrink:0; }
-        #search-input { flex:1; border:none; outline:none; font-size:13.5px; color:#1e3a5f; padding:11px 0; background:transparent; }
-        #search-input::placeholder { color:#a0b8cc; }
-        #btn-go { background:#1a73e8; color:#fff; border:none; padding:0 18px; height:44px; cursor:pointer; font-size:13px; font-weight:600; transition:background .15s; white-space:nowrap; }
-        #btn-go:hover { background:#1558b0; }
-        .viewer-frame { position:relative; width:100%; max-width:1000px; height:560px; background:#e5effa; border-radius:24px; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 20px rgba(0,30,60,.06); overflow:hidden; }
+        body { background:#f0f4f9; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:0; }
+        .viewer-frame { position:relative; width:100vw; height:100vh; background:#e5effa; display:flex; align-items:center; justify-content:center; overflow:hidden; }
         #canvas-container { position:absolute; top:0; left:0; width:100%; height:100%; z-index:1; }
         .floating-toolbar { position:absolute; left:16px; top:50%; transform:translateY(-50%); background:#fff; padding:14px 10px; border-radius:18px; box-shadow:0 4px 16px rgba(0,0,0,.08); display:flex; flex-direction:column; gap:18px; align-items:center; z-index:20; }
         .tool-icon { width:20px; height:20px; color:#4a5568; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:color .15s; background:none; border:none; }
@@ -42,14 +33,6 @@
 </head>
 <body>
 
-<div class="header">
-    <h1 class="title">Visor STP 3D</h1>
-    <div class="search-bar">
-        <span class="search-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
-        <input id="search-input" type="text" placeholder="ej: axis-p1475-le-en-US-499058.stp" />
-        <button id="btn-go">Cargar &rarr;</button>
-    </div>
-</div>
 
 <div class="viewer-frame" id="viewer-container">
     <div id="canvas-container"></div>
@@ -87,7 +70,6 @@
     const welcomeIcon  = document.getElementById('welcome-icon');
     const fileBadge    = document.getElementById('file-badge');
     const fileInput    = document.getElementById('file-input');
-    const searchInput  = document.getElementById('search-input');
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#e5effa');
@@ -111,23 +93,44 @@
     function showError(m){ spinnerIcon.style.display='none'; indicatorBar.style.display='none'; welcomeIcon.style.display='none'; statusText.classList.add('error'); statusText.innerHTML='No se pudo cargar el archivo.'; statusSub.innerText=m; }
     function showModel(n){ statusCard.style.display='none'; fileBadge.style.display='block'; fileBadge.innerText='📄 '+n; }
 
+    var PART_COLORS = [
+        0xB0C4DE, 0x7A9EB5, 0x4A7FA5, 0x2E6A8E,
+        0x5B8FA8, 0x8FADA8, 0xA0B8A0, 0xC8C89A,
+        0xD4A96A, 0xC88050, 0xA07060, 0x8A7090,
+        0x6A80A0, 0x90A0B8, 0xB0B0C8, 0x9898A8
+    ];
+
     async function processStepBuffer(buf, name) {
-        statusText.innerHTML='Renderizando <strong>'+name+'</strong>...';
-        statusSub.innerText='Calculando geometria 3D...';
+        statusText.innerHTML = 'Renderizando <strong>' + name + '</strong>...';
+        statusSub.innerText = 'Calculando geometria 3D...';
         var occt = await occtimportjs();
-        var result = occt.ReadStepFile(new Uint8Array(buf), { linearDeflection:0.1, angularDeflection:0.5 });
+        var result = occt.ReadStepFile(new Uint8Array(buf), { linearDeflection: 0.1, angularDeflection: 0.5 });
         if (!result.success || !result.meshes.length) throw new Error('No se pudo procesar la geometria.');
         if (currentModel) scene.remove(currentModel);
         currentModel = new THREE.Group();
-        for (var i=0;i<result.meshes.length;i++) {
+        for (var i = 0; i < result.meshes.length; i++) {
             var m = result.meshes[i];
             var g = new THREE.BufferGeometry();
-            g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(m.attributes.position.array),3));
-            if (m.attributes.normal) g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(m.attributes.normal.array),3));
-            else g.computeVertexNormals();
-            if (m.index) g.setIndex(new THREE.BufferAttribute(new Uint32Array(m.index.array),1));
-            var mat = baseMaterial;
-            if (m.color) mat = new THREE.MeshStandardMaterial({ color:new THREE.Color(m.color[0],m.color[1],m.color[2]), roughness:0.35, metalness:0.2, side:THREE.DoubleSide });
+            g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(m.attributes.position.array), 3));
+            if (m.attributes.normal) {
+                g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(m.attributes.normal.array), 3));
+            } else {
+                g.computeVertexNormals();
+            }
+            if (m.index) g.setIndex(new THREE.BufferAttribute(new Uint32Array(m.index.array), 1));
+
+            var meshColor;
+            if (m.color && m.color.length >= 3) {
+                meshColor = new THREE.Color(m.color[0], m.color[1], m.color[2]);
+            } else {
+                meshColor = new THREE.Color(PART_COLORS[i % PART_COLORS.length]);
+            }
+            var mat = new THREE.MeshStandardMaterial({
+                color: meshColor,
+                roughness: 0.3,
+                metalness: 0.25,
+                side: THREE.DoubleSide
+            });
             currentModel.add(new THREE.Mesh(g, mat));
         }
         var box = new THREE.Box3().setFromObject(currentModel);
@@ -159,15 +162,10 @@
     function navigateTo(n) { window.location.hash = encodeURIComponent(n.trim()); }
     function handleHashChange() {
         var f = getHashFile();
-        if (f) { searchInput.value = f; loadFromTelmedia(f); }
-        else { searchInput.value=''; showWelcome(); }
+        if (f) { loadFromTelmedia(f); }
+        else { showWelcome(); }
     }
     window.addEventListener('hashchange', handleHashChange);
-
-    document.getElementById('btn-go').onclick = function() {
-        var v = searchInput.value.trim(); if (v) navigateTo(v);
-    };
-    searchInput.addEventListener('keydown', function(e){ if(e.key==='Enter') document.getElementById('btn-go').click(); });
 
     document.getElementById('btn-upload').onclick = function(){ fileInput.click(); };
     fileInput.onchange = function(e){
