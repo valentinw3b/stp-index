@@ -24,6 +24,8 @@
         .indicator-bar { width:100%; max-width:260px; height:4px; background:#c9e0fa; border-radius:4px; overflow:hidden; position:relative; }
         .indicator-progress { width:40%; height:100%; background:#1a73e8; border-radius:4px; position:absolute; animation:pulse-progress 1.6s infinite ease-in-out; }
         @keyframes pulse-progress { 0%{ left:-40%; } 100%{ left:100%; } }
+        .progress-fill { height:100%; background:#1a73e8; border-radius:4px; width:0%; transition:width 0.3s ease; }
+        .progress-pct { color:#1a73e8; font-size:12px; font-weight:700; margin-top:6px; margin-bottom:12px; letter-spacing:0.5px; }
         .file-badge { position:absolute; bottom:14px; right:14px; background:rgba(30,58,95,.75); color:#e8f0fe; font-size:11.5px; padding:5px 12px; border-radius:20px; z-index:20; max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:none; backdrop-filter:blur(6px); }
         #file-input { display:none; }
     </style>
@@ -50,7 +52,11 @@
             <div class="welcome-icon" id="welcome-icon" style="display:none">&#128230;</div>
             <p class="status-heading" id="status-text">Iniciando...</p>
             <p class="sub-text" id="status-sub"></p>
-            <div class="indicator-bar" id="indicator-bar"><div class="indicator-progress"></div></div>
+            <div class="indicator-bar" id="indicator-bar">
+                <div class="indicator-progress" id="progress-anim"></div>
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-pct" id="progress-pct"></div>
         </div>
     </div>
     <div class="file-badge" id="file-badge"></div>
@@ -70,6 +76,9 @@
     const welcomeIcon  = document.getElementById('welcome-icon');
     const fileBadge    = document.getElementById('file-badge');
     const fileInput    = document.getElementById('file-input');
+    const progressFill = document.getElementById('progress-fill');
+    const progressAnim = document.getElementById('progress-anim');
+    const progressPct  = document.getElementById('progress-pct');
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#e5effa');
@@ -88,7 +97,34 @@
     var currentModel = null;
     var baseMaterial = new THREE.MeshStandardMaterial({ color:0x93b5cf, roughness:0.35, metalness:0.2, side:THREE.DoubleSide });
 
-    function showLoading(n){ statusCard.style.display='flex'; spinnerIcon.style.display='block'; indicatorBar.style.display='block'; welcomeIcon.style.display='none'; statusText.classList.remove('error'); statusText.innerHTML='Cargando <strong>'+n+'</strong>...'; statusSub.innerText='Procesando geometria CAD...'; }
+    function showLoading(n) {
+        statusCard.style.display = 'flex';
+        spinnerIcon.style.display = 'block';
+        indicatorBar.style.display = 'block';
+        welcomeIcon.style.display = 'none';
+        statusText.classList.remove('error');
+        statusText.innerHTML = 'Descargando <strong>' + n + '</strong>';
+        statusSub.innerText = 'Conectando con el servidor...';
+        progressAnim.style.display = 'block';
+        progressFill.style.width = '0%';
+        progressFill.style.display = 'none';
+        progressPct.innerText = '';
+    }
+    function updateProgress(pct) {
+        var p = Math.round(pct * 100);
+        progressAnim.style.display = 'none';
+        progressFill.style.display = 'block';
+        progressFill.style.width = p + '%';
+        progressPct.innerText = p + '%';
+        if (p < 100) {
+            statusText.innerHTML = 'Descargando archivo...';
+            statusSub.innerText = 'Por favor espera, el archivo puede ser grande';
+        } else {
+            statusText.innerHTML = 'Procesando geometria 3D...';
+            statusSub.innerText = 'Calculando mallas y normales';
+            progressPct.innerText = 'Procesando...';
+        }
+    }
     function showWelcome(){ statusCard.style.display='flex'; spinnerIcon.style.display='none'; indicatorBar.style.display='none'; welcomeIcon.style.display='block'; statusText.classList.remove('error'); statusText.innerHTML='Escribe el nombre de un archivo STP'; statusSub.innerText='Ej: axis-p1475-le-en-US-499058.stp'; fileBadge.style.display='none'; }
     function showError(m){ spinnerIcon.style.display='none'; indicatorBar.style.display='none'; welcomeIcon.style.display='none'; statusText.classList.add('error'); statusText.innerHTML='No se pudo cargar el archivo.'; statusSub.innerText=m; }
     function showModel(n){ statusCard.style.display='none'; fileBadge.style.display='block'; fileBadge.innerText='📄 '+n; }
@@ -143,6 +179,32 @@
         showModel(name);
     }
 
+    // Descarga con progreso real usando streaming
+    async function fetchWithProgress(url) {
+        var resp = await fetch(url);
+        if (!resp.ok) throw new Error('Error ' + resp.status + ': archivo no encontrado.');
+        var contentLength = resp.headers.get('Content-Length');
+        var total = contentLength ? parseInt(contentLength, 10) : 0;
+        var reader = resp.body.getReader();
+        var received = 0;
+        var chunks = [];
+        while (true) {
+            var read = await reader.read();
+            if (read.done) break;
+            chunks.push(read.value);
+            received += read.value.length;
+            if (total > 0) updateProgress(received / total);
+            else updateProgress(0.5); // indeterminate si no hay Content-Length
+        }
+        updateProgress(1);
+        var totalBytes = 0;
+        for (var k = 0; k < chunks.length; k++) totalBytes += chunks[k].length;
+        var merged = new Uint8Array(totalBytes);
+        var offset = 0;
+        for (var k = 0; k < chunks.length; k++) { merged.set(chunks[k], offset); offset += chunks[k].length; }
+        return merged.buffer;
+    }
+
     async function loadFromTelmedia(fileName) {
         fileName = fileName.trim();
         if (!fileName) { showWelcome(); return; }
@@ -151,11 +213,11 @@
         try {
             var raw  = TELMEDIA_BASE + encodeURIComponent(fileName);
             var url  = WORKER_PROXY + encodeURIComponent(raw);
-            var resp = await fetch(url);
-            if (!resp.ok) throw new Error('Error '+resp.status+': archivo no encontrado en el servidor.');
-            var buf = await resp.arrayBuffer();
+            var buf  = await fetchWithProgress(url);
             await processStepBuffer(buf, fileName);
-        } catch(e) { showError(e.message || 'Error desconocido.'); }
+        } catch(e) {
+            showError(e.message || 'Error desconocido.');
+        }
     }
 
     function getHashFile() { return decodeURIComponent(window.location.hash.slice(1)); }
