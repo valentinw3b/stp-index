@@ -339,14 +339,14 @@
 
             for (const m of result.meshes) {
                 const geom = new THREE.BufferGeometry();
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(m.attributes.position.array, 3));
+                geom.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(m.attributes.position.array), 3));
                 if (m.attributes.normal) {
-                    geom.setAttribute('normal', new THREE.Float32BufferAttribute(m.attributes.normal.array, 3));
+                    geom.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(m.attributes.normal.array), 3));
                 } else {
                     geom.computeVertexNormals();
                 }
                 if (m.index) {
-                    geom.setIndex(new THREE.BufferAttribute(m.index.array, 1));
+                    geom.setIndex(new THREE.BufferAttribute(new Uint32Array(m.index.array), 1));
                 }
 
                 let mat = baseMaterial;
