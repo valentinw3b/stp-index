@@ -188,7 +188,7 @@
     <!-- Librerías Three.js y Open CASCADE WASM -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.12/dist/occt-import-js.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.17/dist/occt-import-js.js"></script>
 </head>
 
 <body>
@@ -324,8 +324,11 @@
             statusSub.innerText = 'Calculando geometría 3D y normales';
 
             const occt = await occtimportjs();
-            const result = occt.ReadStepFile(new Uint8Array(arrayBuffer));
-
+            const fileBuffer = new Uint8Array(arrayBuffer);
+            const result = occt.ReadStepFile(fileBuffer, {
+                linearDeflection: 0.1,
+                angularDeflection: 0.5
+            });
 
             if (!result.success || !result.meshes.length) {
                 throw new Error('No se pudo procesar la geometría del archivo STP.');
